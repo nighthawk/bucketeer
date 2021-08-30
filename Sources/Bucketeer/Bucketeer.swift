@@ -9,6 +9,20 @@ public protocol BucketeerDataSet {
   func value(for item: Item, metric: Metric) -> Double?
 }
 
+/// A one-dimensional data set of numbers
+public struct NumericDataSet: BucketeerDataSet {
+  public init(items: [Double]) {
+    self.items = items
+  }
+  
+  public enum Metric: Hashable {
+    case value
+  }
+  
+  public var items: [Double]
+  public func value(for item: Double, metric: Metric) -> Double? { item }
+}
+
 public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
   public struct Analysis {
     let values: [Double]
@@ -20,14 +34,14 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
   }
   
   public enum BucketOption {
-    // Creates `thresholds.count` buckets with the provided cut-off values
+    /// Creates `thresholds.count` buckets with the provided cut-off values
     case fixed(thresholds: [Double])
 
-    // Creates `count` buckets at the provided percentiles (i.e., values
-    // have to be between 0...1.
+    /// Creates `count` buckets at the provided percentiles (i.e., values
+    /// have to be between 0...1.
     case percentiles([Double])
 
-    // Creates `n` buckets of uniform width from min to max
+    /// Creates `n` buckets of uniform width from min to max
     case uniform(Int)
   }
   
@@ -65,6 +79,12 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
     return Analysis(values: values)
   }
   
+  /// Puts the data set's items into histogram-compatible buckets for the provided metric
+  ///
+  /// - Parameters:
+  ///   - metric: The metric by which to put items into buckets
+  ///   - option: Determines how to split the items into buckets, e.g., by provided thresholds, by equal "width", or according to percentiles. See `BucketOption`.
+  /// - Returns: The resulting buckets
   public func buckets(by metric: DataSet.Metric, option: BucketOption) -> [Bucket] {
     let values = self.values(for: metric)
 
