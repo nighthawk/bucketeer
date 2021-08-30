@@ -2,14 +2,14 @@ import Foundation
 
 public protocol BucketeerDataSet {
   associatedtype Item
-  associatedtype Metric
+  associatedtype Metric: Hashable
   
   var items: [Item] { get }
   
   func value(for item: Item, metric: Metric) -> Double?
 }
 
-public class Bucketeer<Data> where Data: BucketeerDataSet {
+public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
   public struct Analysis {
     let values: [Double]
   }
@@ -31,24 +31,41 @@ public class Bucketeer<Data> where Data: BucketeerDataSet {
     case uniform(Int)
   }
   
-  public init(data: Data) {
-    self.data = data
+  /// Prepares for a new data set
+  ///
+  /// - warning: Whenever the data set's `items` change, you could either create a new
+  /// `Bucketeer` instance or call `clearCache()`
+  ///
+  /// - Parameter dataSet: The data set to analyse
+  public init(dataSet: DataSet) {
+    self.dataSet = dataSet
   }
   
-  public var data: Data
+  public var dataSet: DataSet { didSet { cachedValues = [:] }}
   
-  private func values(for metric: Data.Metric) -> [Double] {
-    #warning("TODO: Use cache")
-    let values = data.items.compactMap { data.value(for: $0, metric: metric) }.sorted()
-    return values
+  private var cachedValues: [DataSet.Metric: [Double]] = [:]
+  
+  private func values(for metric: DataSet.Metric) -> [Double] {
+    if let cached = cachedValues[metric] {
+      return cached
+    } else {
+      let values = dataSet.items.compactMap { dataSet.value(for: $0, metric: metric) }.sorted()
+      cachedValues[metric] = values
+      return values
+    }
   }
   
-  public func analyze(_ metric: Data.Metric) -> Analysis {
+  /// Clears the cache. Important to call this whenever `items` of your data set changes.
+  public func clearCache() {
+    cachedValues = [:]
+  }
+  
+  public func analyze(_ metric: DataSet.Metric) -> Analysis {
     let values = self.values(for: metric)
     return Analysis(values: values)
   }
   
-  public func buckets(by metric: Data.Metric, option: BucketOption) -> [Bucket] {
+  public func buckets(by metric: DataSet.Metric, option: BucketOption) -> [Bucket] {
     let values = self.values(for: metric)
 
     var ranges: [Range<Double>]
@@ -117,7 +134,7 @@ public class Bucketeer<Data> where Data: BucketeerDataSet {
 }
 
 extension Bucketeer.Bucket: Comparable {
-  public static func < (lhs: Bucketeer<Data>.Bucket, rhs: Bucketeer<Data>.Bucket) -> Bool {
+  public static func < (lhs: Bucketeer<DataSet>.Bucket, rhs: Bucketeer<DataSet>.Bucket) -> Bool {
     lhs.range.lowerBound < rhs.range.lowerBound
   }
 }

@@ -4,7 +4,7 @@ import XCTest
 final class BucketeerTests: XCTestCase {
   
   func testTripValues() {
-    let collector = Bucketeer(data: TripsDataSet.trips)
+    let collector = Bucketeer(dataSet: TripsDataSet.trips)
     
     let durations = collector.analyze(.duration).values
     XCTAssertEqual(durations, [10.0 * 60, 15.0 * 60, 16.0 * 60, 31.0 * 60, 38.0 * 60, 62.0 * 60, 2.5 * 3600])
@@ -14,7 +14,7 @@ final class BucketeerTests: XCTestCase {
   }
 
   func testTripFixedBuckets() {
-    let collector = Bucketeer(data: TripsDataSet.trips)
+    let collector = Bucketeer(dataSet: TripsDataSet.trips)
     
     let durations = collector.buckets(by: .distance, option: .fixed(thresholds: [
       1_000, 2_500, 5_000, 10_000
@@ -24,7 +24,7 @@ final class BucketeerTests: XCTestCase {
   }
   
   func testTripUniformBuckets() {
-    let collector = Bucketeer(data: TripsDataSet.trips)
+    let collector = Bucketeer(dataSet: TripsDataSet.trips)
     
     let single = collector.buckets(by: .distance, option: .uniform(1))
     XCTAssertEqual(single.count, 1)
@@ -40,7 +40,7 @@ final class BucketeerTests: XCTestCase {
   }
   
   func testTripPercentileBuckets() {
-    let collector = Bucketeer(data: TripsDataSet.trips)
+    let collector = Bucketeer(dataSet: TripsDataSet.trips)
     
     let single = collector.buckets(by: .distance, option: .percentiles([0.5]))
     XCTAssertEqual(single.count, 2)
@@ -56,7 +56,7 @@ final class BucketeerTests: XCTestCase {
   }
   
   func testEmptyDataSet() {
-    let collector = Bucketeer(data: TripsDataSet(items: []))
+    let collector = Bucketeer(dataSet: TripsDataSet(items: []))
     
     let durations = collector.analyze(.duration).values
     XCTAssertEqual(durations, [])
@@ -81,7 +81,7 @@ final class BucketeerTests: XCTestCase {
   
   func testAllTheSame() {
     let items = (0..<100).map { _ in TripItem(duration: .init(value: 1, unit: .hours), distance: .init(value: 10, unit: .kilometers)) }
-    let collector = Bucketeer(data: TripsDataSet(items: items))
+    let collector = Bucketeer(dataSet: TripsDataSet(items: items))
     
     let durations = collector.analyze(.duration).values
     XCTAssertEqual(durations, (0..<100).map { _ in 3600.0 })
@@ -109,7 +109,7 @@ final class BucketeerTests: XCTestCase {
   }
   
   func testMissingValues() {
-    let collector = Bucketeer(data: TripsDataSet(items: [
+    let collector = Bucketeer(dataSet: TripsDataSet(items: [
       .init(duration: .init(value:  3, unit: .hours)),
       .init(duration: .init(value: 10, unit: .minutes)),
       .init(duration: .init(value: -0, unit: .hours)),
@@ -121,7 +121,7 @@ final class BucketeerTests: XCTestCase {
     XCTAssertEqual(triple.map(\.count), [0, 0, 0])  }
   
   func testNegativeValues() {
-    let collector = Bucketeer(data: TripsDataSet(items: [
+    let collector = Bucketeer(dataSet: TripsDataSet(items: [
       .init(duration: .init(value: -2, unit: .hours)),
       .init(duration: .init(value: -1, unit: .hours)),
       .init(duration: .init(value: -0, unit: .hours)),
@@ -131,6 +131,17 @@ final class BucketeerTests: XCTestCase {
     let triple = collector.buckets(by: .duration, option: .uniform(3))
     XCTAssertEqual(triple.count, 3)
     XCTAssertEqual(triple.map(\.count), [3, 0, 1])
+  }
+  
+  func testPerformanceCaching() {
+    let items = (0..<100_000).map { _ in TripItem(duration: .init(value: Double.random(in: 10..<120), unit: .minutes), distance: .init(value: Double.random(in: 500..<12_500), unit: .meters)) }
+    let collector = Bucketeer(dataSet: TripsDataSet(items: items))
+
+    measure {
+      _ = collector.buckets(by: .distance, option: .percentiles([0.5, 0.8, 0.9]))
+      _ = collector.buckets(by: .duration, option: .percentiles([0.25, 0.5, 0.8, 0.9]))
+    }
+    
   }
 
 }
@@ -164,7 +175,7 @@ struct TripItem {
 }
 
 struct TripsDataSet: BucketeerDataSet {
-  enum Metric {
+  enum Metric: Hashable {
     case duration
     case distance
   }
