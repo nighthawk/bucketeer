@@ -29,8 +29,18 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
   }
   
   public struct Bucket {
-    public let range: Range<Double>
+    let range: Range<Double>
     public var count: Int = 0
+    
+    public func contains(_ value: Double) -> Bool {
+      if range.contains(value) {
+        return true
+      } else if value == .infinity, range.upperBound == .infinity {
+        return true
+      } else {
+        return false
+      }
+    }
   }
   
   public enum BucketOption {
@@ -146,6 +156,10 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
     for value in values {
       if let range = ranges.first(where: { $0.contains(value) } ){
         bucketsByRange[range, default: .init(range: range)].count += 1
+      } else if value == .infinity, let last = ranges.last {
+        bucketsByRange[last, default: .init(range: last)].count += 1
+      } else {
+        assertionFailure("Couldn't find bucket for \(value)")
       }
     }
     assert(bucketsByRange.values.map(\.count).reduce( 0, +) == values.count)
