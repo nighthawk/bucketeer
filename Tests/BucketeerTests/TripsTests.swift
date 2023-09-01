@@ -1,7 +1,7 @@
 import XCTest
 @testable import Bucketeer
 
-final class BucketeerTests: XCTestCase {
+final class TripsTests: XCTestCase {
   
   func testTripValues() {
     let collector = Bucketeer(dataSet: TripsDataSet.trips)
@@ -51,8 +51,8 @@ final class BucketeerTests: XCTestCase {
     XCTAssertEqual(triple.map(\.count), [1, 3, 3])
     
     let quintuple = collector.buckets(by: .distance, option: .percentiles([0.1, 0.3, 0.7, 0.9]))
-    XCTAssertEqual(quintuple.count, 3)
-    XCTAssertEqual(quintuple.map(\.count), [1, 3, 3])
+    XCTAssertEqual(quintuple.count, 5)
+    XCTAssertEqual(quintuple.map(\.count), [0, 1, 3, 2, 1])
   }
   
   func testEmptyDataSet() {
