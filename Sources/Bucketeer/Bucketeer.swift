@@ -23,36 +23,44 @@ public struct NumericDataSet: BucketeerDataSet {
   public func value(for item: Double, metric: Metric) -> Double? { item }
 }
 
+public struct Bucket: Hashable {
+  public enum Kind: Hashable {
+    case fixed(threshold: Double)
+    case percentile(Double)
+    case uniform(index: Int)
+  }
+  
+  public let kind: Kind
+  var range: Range<Double>? = nil
+  public var count: Int = 0
+  
+  public func contains(_ value: Double) -> Bool {
+    guard let range else { return false }
+    if range.contains(value) {
+      return true
+    } else if value == .infinity, range.upperBound == .infinity {
+      return true
+    } else {
+      return false
+    }
+  }
+}
+
+public enum BucketOption {
+  /// Creates `thresholds.count` buckets with the provided cut-off values
+  case fixed(thresholds: [Double])
+
+  /// Creates `count` + 1 buckets at the provided percentiles (i.e., values
+  /// have to be between 0...1.
+  case percentiles([Double])
+
+  /// Creates `n` buckets of uniform width from min to max
+  case uniform(Int)
+}
+
 public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
   public struct Analysis {
     let values: [Double]
-  }
-  
-  public struct Bucket {
-    let range: Range<Double>
-    public var count: Int = 0
-    
-    public func contains(_ value: Double) -> Bool {
-      if range.contains(value) {
-        return true
-      } else if value == .infinity, range.upperBound == .infinity {
-        return true
-      } else {
-        return false
-      }
-    }
-  }
-  
-  public enum BucketOption {
-    /// Creates `thresholds.count` buckets with the provided cut-off values
-    case fixed(thresholds: [Double])
-
-    /// Creates `count` buckets at the provided percentiles (i.e., values
-    /// have to be between 0...1.
-    case percentiles([Double])
-
-    /// Creates `n` buckets of uniform width from min to max
-    case uniform(Int)
   }
   
   /// Prepares for a new data set
@@ -98,77 +106,106 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
   public func buckets(by metric: DataSet.Metric, option: BucketOption) -> [Bucket] {
     let values = self.values(for: metric)
 
-    var ranges: [Range<Double>]
+    var buckets: [Bucket]
     switch option {
     case .uniform(let bucketCount):
       guard let min = values.first, let max = values.last else {
         // No values, but let's maintain requested number of buckets
-        return (0..<bucketCount).map { _ in .init(range: (-.infinity)..<(.infinity)) }
+        return (0..<bucketCount).map { .init(kind: .uniform(index: $0)) }
       }
+
       if bucketCount <= 1 {
         // Trivial case for single bucket
-        ranges = [(-.infinity)..<(.infinity)]
+        buckets = [.init(kind: .uniform(index: 0), range: (-.infinity)..<(.infinity))]
       } else if min == max {
         // Special handling with min=max to avoid duplicated buckets
-        ranges = (0..<bucketCount).map { i -> Range<Double> in
+        buckets = (0..<bucketCount).map { i -> Bucket in
           let lower = (i == bucketCount / 2) ? min : min - Double(bucketCount / 2 - i)
           let upper = lower + 1
-          return lower..<upper
+          return .init(kind: .uniform(index: i), range: lower..<upper)
         }
       } else {
         // Regular case, first and last bucket but use infinite at the sides
         // to address floating point imprecision
         let width = (max - min) / Double(bucketCount)
-        ranges = (0..<bucketCount).map { i -> Range<Double> in
+        buckets = (0..<bucketCount).map { i -> Bucket in
           let lower = min + Double(i) * width
           let upper = lower + width
+          let range: Range<Double>
           switch i {
-          case ...0:                  return -.infinity..<upper
-          case ..<(bucketCount - 1):  return lower..<upper
-          default:                    return lower..<(.infinity)
+          case ...0:                  range = -.infinity..<upper
+          case ..<(bucketCount - 1):  range = lower..<upper
+          default:                    range = lower..<(.infinity)
           }
+          return .init(kind: .uniform(index: i), range: range)
         }
       }
       
-    case .percentiles(let percentiles):
-      guard !values.isEmpty else { return [] }
-      var splits = Set(percentiles.map { Int(Double(values.count) * $0) })
+    case .percentiles(var percentiles):
+      guard !values.isEmpty else {
+        return percentiles.map { .init(kind: .percentile($0)) }
+      }
       
-      // Make sure we hve the bounds, but don't double up with them
-      splits.formUnion([0, values.count - 1])
+      if percentiles.last == 1.0 {
+        percentiles.removeLast()
+      }
+      let splits = Set(percentiles.map { Int(Double(values.count) * $0) })
       
-      #warning("TODO: Should maintain number of buckets here, too, even if there's nothing unique in that percentile... should it go up or down?")
-      let values = splits.map { values[$0] }
-      var sorted = values.sorted()
-      sorted[0] = -.infinity
-      sorted[sorted.count - 1] = .infinity
-      ranges = zip(sorted.dropLast(), sorted.dropFirst()).map { $0..<$1 }
+      let thresholds = splits
+        .map { values[$0] }
+        .sorted()
+      
+      percentiles.append(1.0)
+      let bucketCount = percentiles.count
+      buckets = percentiles.enumerated().map { i, percentile in
+        let range: Range<Double>
+        switch i {
+        case ...0:                  range = -.infinity..<thresholds[0]
+        case ..<(bucketCount - 1):  range = thresholds[i-1]..<thresholds[i]
+        default:                    range = thresholds[i-1]..<(.infinity)
+        }
+        return .init(kind: .percentile(percentile), range: range)
+      }
     
     case .fixed(var thresholds):
-      thresholds.insert(-.infinity, at: 0)
-      thresholds.append(.infinity)
-      ranges = zip(thresholds.dropLast(), thresholds.dropFirst()).map { $0..<$1 }
-    }
-    
-    var bucketsByRange: [Range<Double>: Bucket] = Dictionary(uniqueKeysWithValues: ranges.map {
-      ($0, Bucket(range: $0))
-    })
-    for value in values {
-      if let range = ranges.first(where: { $0.contains(value) } ){
-        bucketsByRange[range, default: .init(range: range)].count += 1
-      } else if value == .infinity, let last = ranges.last {
-        bucketsByRange[last, default: .init(range: last)].count += 1
-      } else {
-        assertionFailure("Couldn't find bucket for \(value)")
+      if thresholds.last != .infinity {
+        thresholds.append(.infinity)
+      }
+      
+      let bucketCount = thresholds.count
+      buckets = thresholds.enumerated().map { i, upper in
+        let range: Range<Double>
+        switch i {
+        case ...0:                  range = -.infinity..<thresholds[0]
+        case ..<(bucketCount - 1):  range = thresholds[i-1]..<thresholds[i]
+        default:                    range = thresholds[i-1]..<(.infinity)
+        }
+        return .init(kind: .fixed(threshold: upper), range: range)
       }
     }
-    assert(bucketsByRange.values.map(\.count).reduce( 0, +) == values.count)
-    return bucketsByRange.values.sorted()
+    
+    for value in values {
+      var anyMatched: Bool = false
+      for (offset, bucket) in buckets.enumerated() {
+        if bucket.contains(value) {
+          buckets[offset].count += 1
+          anyMatched = true
+        }
+      }
+      
+      if !anyMatched {
+        assert(value == .infinity)
+        buckets[buckets.count - 1].count += 1
+      }
+    }
+
+    return buckets.sorted()
   }
 }
 
-extension Bucketeer.Bucket: Comparable {
-  public static func < (lhs: Bucketeer<DataSet>.Bucket, rhs: Bucketeer<DataSet>.Bucket) -> Bool {
-    lhs.range.lowerBound < rhs.range.lowerBound
+extension Bucket: Comparable {
+  public static func < (lhs: Bucket, rhs: Bucket) -> Bool {
+    guard let leftRange = lhs.range, let rightRange = rhs.range else { return false }
+    return leftRange.lowerBound < rightRange.lowerBound
   }
 }
