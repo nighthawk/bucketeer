@@ -37,6 +37,30 @@ final class PercentileTests: XCTestCase {
     XCTAssertEqual(strodeWithNils.map(\.count), [750, 150, 100])
   }
   
+  func testPercentileBucketsFromTooFewItems() {
+    let collector = Bucketeer<MemoryDataSet>(dataSet: .init(items: []))
+    
+    collector.dataSet.items = [1]
+    let single = collector.buckets(by: .single, option: .percentiles([0.75, 0.9]))
+    XCTAssertEqual(single.count, 3)
+    XCTAssertEqual(single.map(\.count), [0, 0, 1])
+
+    collector.dataSet.items = [1, 1]
+    let double = collector.buckets(by: .single, option: .percentiles([0.75, 0.9]))
+    XCTAssertEqual(double.count, 3)
+    XCTAssertEqual(double.map(\.count), [0, 0, 2])
+
+    collector.dataSet.items = [1, 1, 1]
+    let triple = collector.buckets(by: .single, option: .percentiles([0.75, 0.9]))
+    XCTAssertEqual(triple.count, 3)
+    XCTAssertEqual(triple.map(\.count), [0, 0, 3])
+
+    collector.dataSet.items = [1, 1, 1, 1]
+    let quadruple = collector.buckets(by: .single, option: .percentiles([0.75, 0.9]))
+    XCTAssertEqual(quadruple.count, 3)
+    XCTAssertEqual(quadruple.map(\.count), [0, 0, 4])
+  }
+  
   func testPercentilesFromInfiniteBuckets() {
     let collector = Bucketeer<MemoryDataSet>(dataSet: .init(items: []))
     

@@ -157,6 +157,19 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
       
       percentiles.append(1.0)
       let bucketCount = percentiles.count
+      
+      // If we have more buckets/percentiles than items, we just stick
+      // everything in the last bucket.
+      guard bucketCount <= thresholds.count + 1 else {
+        return percentiles.enumerated().map { i, percentile in
+          if i == bucketCount - 1 {
+            return .init(kind: .percentile(percentile), range: -.infinity ..< .infinity, count: values.count)
+          } else {
+            return .init(kind: .percentile(percentile))
+          }
+        }
+      }
+      
       buckets = percentiles.enumerated().map { i, percentile in
         let range: Range<Double>
         switch i {
