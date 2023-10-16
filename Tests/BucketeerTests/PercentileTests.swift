@@ -67,7 +67,7 @@ final class PercentileTests: XCTestCase {
     collector.dataSet.items = Array(repeating: .infinity * -1, count: 91) + [-139872, -1625, -961]
     let uniforms = collector.buckets(by: .single, option: .percentiles([0.75, 0.9]))
     XCTAssertEqual(uniforms.count, 3)
-    XCTAssertEqual(uniforms.map(\.count), [0, 0, 94])
+    XCTAssertEqual(uniforms.map(\.count), [91, 0, 3])
   }
 }
 

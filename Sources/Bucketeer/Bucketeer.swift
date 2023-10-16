@@ -122,6 +122,7 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
         buckets = (0..<bucketCount).map { i -> Bucket in
           let lower = (i == bucketCount / 2) ? min : min - Double(bucketCount / 2 - i)
           let upper = lower + 1
+          assert(upper != -.infinity)
           return .init(kind: .uniform(index: i), range: lower..<upper)
         }
       } else {
@@ -131,6 +132,7 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
         buckets = (0..<bucketCount).map { i -> Bucket in
           let lower = min + Double(i) * width
           let upper = lower + width
+          assert(upper != -.infinity)
           let range: Range<Double>
           switch i {
           case ...0:                  range = -.infinity..<upper
@@ -149,11 +151,25 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
       if percentiles.last == 1.0 {
         percentiles.removeLast()
       }
+      // The splits are the indixes of values at the upper limit per bucket
       let splits = Set(percentiles.map { Int(Double(values.count) * $0) })
       
-      let thresholds = splits
-        .map { values[$0] }
-        .sorted()
+      // The thresholds are the upper values per bucket.
+      // This needs to handle this edge case:
+      // 1. Too many `-.infinity` values that they become a bucket threshold,
+      //    but that's not a value upper bound.
+      var thresholds: [Double] = []
+      for split in splits.sorted() {
+        var index = split
+        var candidate = values[index]
+        while candidate == -.infinity, index + 1 < values.count {
+          index += 1
+          candidate = values[index]
+        }
+        if candidate != -.infinity {
+          thresholds.append(candidate)
+        }
+      }
       
       percentiles.append(1.0)
       let bucketCount = percentiles.count
@@ -173,9 +189,14 @@ public class Bucketeer<DataSet> where DataSet: BucketeerDataSet {
       buckets = percentiles.enumerated().map { i, percentile in
         let range: Range<Double>
         switch i {
-        case ...0:                  range = -.infinity..<thresholds[0]
-        case ..<(bucketCount - 1):  range = thresholds[i-1]..<thresholds[i]
-        default:                    range = thresholds[i-1]..<(.infinity)
+        case ...0:
+          assert(thresholds[0] != -.infinity)
+          range = -.infinity..<thresholds[0]
+        case ..<(bucketCount - 1):
+          assert(thresholds[i] != -.infinity)
+          range = thresholds[i-1]..<thresholds[i]
+        default:                    
+          range = thresholds[i-1]..<(.infinity)
         }
         return .init(kind: .percentile(percentile), range: range)
       }
